@@ -1,0 +1,366 @@
+root@nimserver:/perfdata/node_exporter#ps -ef | grep node_exporter | grep -v grep
+    root 12517786  8454550  20   Jul 29      - 210:05 /perfdata/node_exporter/node_exporter_aix_ppc64 --web.listen-address=:9681 --collector.cpu --collector.filesystem --collector.meminfo --collector.netdev --collector.netinterface --collector.loadavg --collector.partition --collector.diskstats --collector.time --collector.uname --collector.textfile --collector.aix_vmstat_fsbuf --collector.aix_nfsstat --collector.aix_timebase --collector.aix_diskqueues --collector.aix_hypervisor --collector.aix_netadapter --collector.aix_scheduler --collector.aix_fsinfo --collector.aix_vglv --collector.aix_srcstatus --collector.aix_process --collector.aix_lspath
+    root 12714390  8454550   0   Jul 29      -  0:15 /usr/local/bin/node_exporter_aix -cmda -p 9100
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#ls -la /proc/12517786/fd | wc -l
+       9
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#ps -o "pid,ppid,thcount,etime,comm" -p 12517786
+     PID     PPID THCNT     ELAPSED COMMAND
+12517786  8454550    18  6-04:34:54 node_exporter_aix_ppc64
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#ps -ef | awk -v pid=12517786 '$3 == pid'
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#ps -ef | grep -E "lsvg|lslv|lsfs|lssrc|lspath" | grep -v grep | grep -v "collector.aix"
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#ps -ef | grep "<defunct>" | grep -v "grep <defunct>"
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#time lsvg -o
+testvg
+test_newvg
+testvg_new1
+Nimvg
+rootvg
+
+real    0m0.00s
+user    0m0.00s
+sys     0m0.00s
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#for vg in $(lsvg -o); do echo "=== $vg ==="; time lsvg -l "$vg"; done
+=== testvg ===
+testvg:
+LV NAME             TYPE       LPs     PPs     PVs  LV STATE      MOUNT POINT
+testloglv           jfs2log    1       1       1    closed/syncd  N/A
+testlv              jfs2       18      18      1    open/syncd    /TEST
+
+real    0m0.02s
+user    0m0.00s
+sys     0m0.00s
+=== test_newvg ===
+test_newvg:
+LV NAME             TYPE       LPs     PPs     PVs  LV STATE      MOUNT POINT
+testnewloglv        jfs2log    1       1       1    open/syncd    N/A
+test_newlv          jfs2       396     396     1    open/syncd    /test_new
+
+real    0m0.01s
+user    0m0.00s
+sys     0m0.00s
+=== testvg_new1 ===
+testvg_new1:
+LV NAME             TYPE       LPs     PPs     PVs  LV STATE      MOUNT POINT
+testnew1_loglv      jfs2log    1       1       1    open/syncd    N/A
+testlv_new1         jfs2       198     198     1    open/syncd    /testfs_new1
+
+real    0m0.01s
+user    0m0.01s
+sys     0m0.00s
+=== Nimvg ===
+Nimvg:
+LV NAME             TYPE       LPs     PPs     PVs  LV STATE      MOUNT POINT
+Nimloglv            jfs2log    1       1       1    open/syncd    N/A
+Nimlv               jfs2       500     500     3    open/syncd    /nim
+fslv00              jfs2       200     200     2    open/syncd    /export/lpp_source
+spotlv              jfs2       320     320     2    open/syncd    /export/spot
+fslv09              jfs2       9       9       1    closed/syncd  N/A
+fslv11              jfs2       6       6       1    closed/syncd  N/A
+fslv12              jfs2       1       1       1    closed/syncd  N/A
+fslv13              jfs2       8       8       1    closed/syncd  N/A
+fslv14              jfs2       11      11      1    closed/syncd  N/A
+fslv15              jfs2       8       8       1    closed/syncd  N/A
+fslv16              jfs2       3       3       1    closed/syncd  N/A
+fslv17              jfs2       2       2       1    closed/syncd  N/A
+fslv18              jfs2       1       1       1    closed/syncd  N/A
+fslv19              jfs2       1       1       1    closed/syncd  N/A
+fslv20              jfs2       2       2       1    closed/syncd  N/A
+fslv21              jfs2       13      13      1    closed/syncd  N/A
+fslv22              jfs2       17      17      1    closed/syncd  N/A
+fslv23              jfs2       21      21      1    closed/syncd  N/A
+fslv24              jfs2       46      46      1    closed/syncd  N/A
+fslv25              jfs2       10      10      1    closed/syncd  N/A
+fslv26              jfs2       15      15      1    closed/syncd  N/A
+fslv27              jfs2       1       1       1    closed/syncd  N/A
+fslv28              jfs2       19      19      1    closed/syncd  N/A
+fslv29              jfs2       34      34      1    closed/syncd  N/A
+fslv30              jfs2       1       1       1    closed/syncd  N/A
+fslv31              jfs2       1       1       1    closed/syncd  N/A
+fslv33              jfs2       7       7       1    closed/syncd  N/A
+fslv34              jfs2       10      10      1    closed/syncd  N/A
+fslv35              jfs2       20      20      1    closed/syncd  N/A
+fslv36              jfs2       15      15      1    closed/syncd  N/A
+fslv37              jfs2       23      23      1    closed/syncd  N/A
+fslv38              jfs2       16      16      1    closed/syncd  N/A
+fslv39              jfs2       24      24      1    closed/syncd  N/A
+fslv40              jfs2       1       1       1    closed/syncd  N/A
+fslv41              jfs2       9       9       1    closed/syncd  N/A
+fslv42              jfs2       1       1       1    closed/syncd  N/A
+fslv43              jfs2       6       6       1    closed/syncd  N/A
+fslv44              jfs2       11      11      1    closed/syncd  N/A
+fslv45              jfs2       20      20      1    closed/syncd  N/A
+fslv46              jfs2       14      14      1    closed/syncd  N/A
+fslv47              jfs2       30      30      1    closed/syncd  N/A
+fslv48              jfs2       16      16      1    closed/syncd  N/A
+fslv49              jfs2       17      17      1    closed/syncd  N/A
+fslv50              jfs2       1       1       1    closed/syncd  N/A
+fslv51              jfs2       12      12      1    closed/syncd  N/A
+fslv53              jfs2       1       1       1    closed/syncd  N/A
+fslv54              jfs2       3       3       1    closed/syncd  N/A
+fslv55              jfs2       8       8       1    closed/syncd  N/A
+fslv56              jfs2       11      11      1    closed/syncd  N/A
+fslv57              jfs2       6       6       1    closed/syncd  N/A
+fslv58              jfs2       8       8       1    closed/syncd  N/A
+fslv59              jfs2       24      24      1    closed/syncd  N/A
+fslv60              jfs2       15      15      1    closed/syncd  N/A
+fslv61              jfs2       1       1       1    closed/syncd  N/A
+fslv62              jfs2       1       1       1    closed/syncd  N/A
+
+real    0m0.03s
+user    0m0.00s
+sys     0m0.01s
+=== rootvg ===
+rootvg:
+LV NAME             TYPE       LPs     PPs     PVs  LV STATE      MOUNT POINT
+hd5                 boot       1       1       1    closed/syncd  N/A
+hd6                 paging     68      68      1    open/syncd    N/A
+hd8                 jfs2log    1       1       1    open/syncd    N/A
+hd4                 jfs2       20      20      1    open/syncd    /
+hd2                 jfs2       20      20      1    open/syncd    /usr
+hd9var              jfs2       20      20      1    open/syncd    /var
+hd3                 jfs2       40      40      1    open/syncd    /tmp
+hd1                 jfs2       31      31      1    open/syncd    /home
+hd10opt             jfs2       20      20      1    open/syncd    /opt
+hd11admin           jfs2       2       2       1    open/syncd    /admin
+lg_dumplv           sysdump    26      26      1    open/syncd    N/A
+livedump            jfs2       1       1       1    open/syncd    /var/adm/ras/livedump
+loglv00             jfslog     1       1       1    open/syncd    N/A
+lv00                jfs        1       1       1    open/syncd    /var/adm/csd
+perflv              jfs2       100     100     1    open/syncd    /perfdata
+auditlv             jfs2       20      20      1    open/syncd    /audit
+violv               jfs2       10      10      1    open/syncd    /spot_vioa
+violpplv            jfs2       10      10      1    open/syncd    /lpp_source_vioa
+
+real    0m0.02s
+user    0m0.00s
+sys     0m0.00s
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+
+root@nimserver:/perfdata/node_exporter#time lsfs -q
+Name            Nodename   Mount Pt               VFS   Size    Options    Auto Accounting
+/dev/hd4        --         /                      jfs2  20971520 --         yes  no
+  (lv size: 20971520, fs size: 20971520, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/hd1        --         /home                  jfs2  32505856 --         yes  no
+  (lv size: 32505856, fs size: 32505856, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/hd2        --         /usr                   jfs2  20971520 --         yes  no
+  (lv size: 20971520, fs size: 20971520, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/hd9var     --         /var                   jfs2  20971520 --         yes  no
+  (lv size: 20971520, fs size: 20971520, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/hd3        --         /tmp                   jfs2  41943040 --         yes  no
+  (lv size: 41943040, fs size: 41943040, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/hd11admin  --         /admin                 jfs2  2097152 --         yes  no
+  (lv size: 2097152, fs size: 2097152, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/proc           --         /proc                  procfs --      --         yes  no
+/dev/hd10opt    --         /opt                   jfs2  20971520 --         yes  no
+  (lv size: 20971520, fs size: 20971520, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/livedump   --         /var/adm/ras/livedump  jfs2  1048576 --         yes  no
+  (lv size: 1048576, fs size: 1048576, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/lv00       --         /var/adm/csd           jfs   1048576 --         yes  no
+  (lv size: 1048576, fs size: 1048576, frag size: 4096, nbpi: 4096, compress: no, bf: false, ag: 8)
+/dev/perflv     --         /perfdata              jfs2  104857600 --         yes  no
+  (lv size: 104857600, fs size: 104857600, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/cd0        --         /cdrom                 cdrfs --      ro         no   no
+/dev/auditlv    --         /audit                 jfs2  20971520 --         yes  no
+  (lv size: 20971520, fs size: 20971520, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/Nimlv      --         /nim                   jfs2  262144000 --         yes  no
+  (lv size: 262144000, fs size: 262144000, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/fslv00     --         /export/lpp_source     jfs2  104857600 rw         yes  no
+  (lv size: 104857600, fs size: 104857600, block size: 4096, sparse files: yes, inline log: yes, inline log size: 200, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/spot1      --         /spot1                 jfs2  --      --         yes  no
+/dev/spot1: A file or directory in the path name does not exist.
+The volume group of /dev/spot1  may be varied off.
+/dev/spotlv     --         /export/spot           jfs2  167772160 rw         yes  no
+  (lv size: 167772160, fs size: 167772160, block size: 4096, sparse files: yes, inline log: yes, inline log size: 320, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/fslv02     --         #/acltest              jfs2  --      --         yes  no
+/dev/fslv02: A file or directory in the path name does not exist.
+The volume group of /dev/fslv02  may be varied off.
+/dev/infinettestlv --         /Infi_Net_Test         jfs2  --      --         yes  no
+/dev/infinettestlv: There is a request to a device or address that does not exist.
+The volume group of /dev/infinettestlv  may be varied off.
+/dev/testlv     --         /TEST                  jfs2  18874368 --         yes  no
+  (lv size: 18874368, fs size: 18874368, block size: 4096, sparse files: yes, inline log: yes, inline log size: 36, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/violv      --         /spot_vioa             jfs2  10485760 --         yes  no
+  (lv size: 10485760, fs size: 10485760, block size: 4096, sparse files: yes, inline log: yes, inline log size: 20, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/violpplv   --         /lpp_source_vioa       jfs2  10485760 --         yes  no
+  (lv size: 10485760, fs size: 10485760, block size: 4096, sparse files: yes, inline log: yes, inline log size: 20, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/test1lv    --         /TEST1                 jfs2  --      rw         yes  no
+/dev/test1lv: There is a request to a device or address that does not exist.
+The volume group of /dev/test1lv  may be varied off.
+/dev/test2lv    --         /TEST2                 jfs2  --      rw         yes  no
+/dev/test2lv: There is a request to a device or address that does not exist.
+The volume group of /dev/test2lv  may be varied off.
+/dev/users1lv   --         /users1                jfs2  --      --         yes  no
+/dev/users1lv: A file or directory in the path name does not exist.
+The volume group of /dev/users1lv  may be varied off.
+/dev/userslv    --         /users                 jfs2  --      --         yes  no
+/dev/userslv: A file or directory in the path name does not exist.
+The volume group of /dev/userslv  may be varied off.
+/vol19N/mksysb_backup/ 10.240.5.179 /mksysb-backup         nfs   --      rw,bg,soft,intr,nodev,nosuid,sec=sys yes  no
+/dev/test_newlv --         /test_new              jfs2  207618048 rw         yes  no
+  (lv size: 207618048, fs size: 207618048, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+/dev/testlv_new1 --         /testfs_new1           jfs2  207618048 --         yes  no
+  (lv size: 207618048, fs size: 207618048, block size: 4096, sparse files: yes, inline log: no, inline log size: 0, EAformat: v1, Quota: no, DMAPI: no, VIX: yes, EFS: no, ISNAPSHOT: no, MAXEXT: 0, MountGuard: no, LFF: no)
+
+real    0m0.06s
+user    0m0.01s
+sys     0m0.02s
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+
+
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#time lssrc -a
+Subsystem         Group            PID          Status
+ syslogd          ras              10223970     active
+ portmap          portmap          10420582     active
+ xntpd            tcpip            9437694      active
+ netcd            netcd            9371996      active
+ nimesis          nim              9961972      active
+ aso                               9306448      active
+ clcomd           caa              12190078     active
+ sshd             ssh              11993466     active
+ ctrmc            rsct             11731328     active
+ node_exporter_aix                  12714390     active
+ node_exporter_aix_go                  12517786     active
+ gc-agent                          13173160     active
+ splunkd          splunk           13435300     active
+ mcproxy          rsct             13959604     active
+ IBM.HostRM       rsct_rm          11403666     active
+ IBM.DRM          rsct_rm          14156226     active
+ IBM.ConfigRM     rsct_rm          14221774     active
+ IBM.MgmtDomainRM rsct_rm          14876946     active
+ IBM.ServiceRM    rsct_rm          18874704     active
+ inetd            tcpip            19005940     active
+ ds_agent                          22151664     active
+ qdaemon          spooler                       inoperative
+ writesrv         spooler                       inoperative
+ lpd              spooler                       inoperative
+ secldapclntd     secldap                       inoperative
+ llbd             iforncs                       inoperative
+ glbd             iforncs                       inoperative
+ cdromd                                         inoperative
+ LUMlmd           lumls                         inoperative
+ LUMgdb           lumls                         inoperative
+ i4lmd            iforls                        inoperative
+ i4glbcd          iforncs                       inoperative
+ i4gdb            iforls                        inoperative
+ i4llmd           iforls                        inoperative
+ cdpd             tcpip                         inoperative
+ rwhod            tcpip                         inoperative
+ sendmail         mail                          inoperative
+ snmpd            tcpip                         inoperative
+ aixmibd          tcpip                         inoperative
+ hostmibd         tcpip                         inoperative
+ snmpmibd         tcpip                         inoperative
+ dpid2            tcpip                         inoperative
+ dhcpcd           tcpip                         inoperative
+ dhcpcd6          tcpip                         inoperative
+ ndpd-host        tcpip                         inoperative
+ ndpd-router      tcpip                         inoperative
+ tftpd            tcpip                         inoperative
+ gated            tcpip                         inoperative
+ named            tcpip                         inoperative
+ routed           tcpip                         inoperative
+ iptrace          tcpip                         inoperative
+ timed            tcpip                         inoperative
+ dhcpsd           tcpip                         inoperative
+ dhcpsdv6         tcpip                         inoperative
+ dhcprd           tcpip                         inoperative
+ mrouted          tcpip                         inoperative
+ rsvpd            qos                           inoperative
+ policyd          qos                           inoperative
+ pxed             tcpip                         inoperative
+ binld            tcpip                         inoperative
+ dfpd             tcpip                         inoperative
+ biod             nfs                           inoperative
+ nfsd             nfs                           inoperative
+ rpc.statd        nfs                           inoperative
+ rpc.lockd        nfs                           inoperative
+ rpc.mountd       nfs                           inoperative
+ automountd       autofs                        inoperative
+ nfsrgyd          nfs                           inoperative
+ gssd             nfs                           inoperative
+ cpsd             ike                           inoperative
+ tmd              ike                           inoperative
+ isakmpd                                        inoperative
+ ikev2d                                         inoperative
+ iked             ike                           inoperative
+ ctcas            rsct                          inoperative
+ clconfd          caa                           inoperative
+ http4websm       websm                         inoperative
+ wsmrefserver                                   inoperative
+ pconsole         system                        inoperative
+ pconsoleProxy    pconsole                      inoperative
+ pconsolePDA      pconsole                      inoperative
+ nimsh            nimclient                     inoperative
+ pmperfrec                                      inoperative
+ IBM.AuditRM      rsct_rm                       inoperative
+ pnsd                                           inoperative
+ IBM.CSMAgentRM   rsct_rm                       inoperative
+ gsclvmd                                        inoperative
+ dtsrc                                          inoperative
+ IBM.ERRM         rsct_rm                       inoperative
+ cas_agent                                      inoperative
+ IBM.SRVPROXY     ibmsrv                        inoperative
+ hrd              hrd                           inoperative
+ ksys_vmmon                                     inoperative
+ syslogdswap      ras                           inoperative
+ saslauthd        tcpip                         inoperative
+ nimhttp                                        inoperative
+ nimd                                           inoperative
+
+real    0m0.01s
+user    0m0.00s
+sys     0m0.00s
+root@nimserver:/perfdata/node_exporter#
+
+root@nimserver:/perfdata/node_exporter#lssrc -s node_exporter_aix_go
+Subsystem         Group            PID          Status
+ node_exporter_aix_go                  12517786     active
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#stopsrc -s node_exporter_aix_go
+0513-044 The node_exporter_aix_go Subsystem was requested to stop.
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#lssrc -s node_exporter_aix_go
+Subsystem         Group            PID          Status
+ node_exporter_aix_go                               inoperative
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#rmsys -s node_exporter_aix_go
+ksh: rmsys:  not found.
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#rmsys -s node_exporter_aix_go
+ksh: rmsys:  not found.
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#rmssys -s node_exporter_aix_go
+0513-083 Subsystem has been Deleted.
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#tor.aix_lspath > /perfdata/node_exporter/nodeexporter.log 2>&1 &                                        <
+[1]     14614952
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#ps -ef
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#
+root@nimserver:/perfdata/node_exporter#ps -ef | grep -i node_exporter
+    root 12714390  8454550   0   Jul 29      -  0:15 /usr/local/bin/node_exporter_aix -cmda -p 9100
+    root 14614952 25559546   0 18:25:36  pts/1  0:00 ./node_exporter_aix_ppc64_v2 --web.listen-address=:9681 --collector.cpu --collector.filesystem --collector.meminfo --collector.netdev --collector.netinterface --collector.loadavg --collector.partition --collector.diskstats --collector.time --collector.uname --collector.textfile --collector.aix_vmstat_fsbuf --collector.aix_nfsstat --collector.aix_timebase --collector.aix_diskqueues --collector.aix_hypervisor --collector.aix_netadapter --collector.aix_scheduler --collector.aix_fsinfo --collector.aix_vglv --collector.aix_srcstatus --collector.aix_process --collector.aix_lspath
+root@nimserver:/perfdata/node_exporter#
+
+
+

@@ -1,0 +1,260 @@
+root@nimserver:/tmp/vg#lsvg -o
+testvg
+test_newvg
+testvg_new1
+Nimvg
+rootvg
+root@nimserver:/tmp/vg#
+root@nimserver:/tmp/vg#lsvg -l Nimvg
+Nimvg:
+LV NAME             TYPE       LPs     PPs     PVs  LV STATE      MOUNT POINT
+Nimloglv            jfs2log    1       1       1    open/syncd    N/A
+Nimlv               jfs2       500     500     3    open/syncd    /nim
+fslv00              jfs2       200     200     2    open/syncd    /export/lpp_source
+spotlv              jfs2       320     320     2    open/syncd    /export/spot
+fslv09              jfs2       9       9       1    closed/syncd  N/A
+fslv11              jfs2       6       6       1    closed/syncd  N/A
+fslv12              jfs2       1       1       1    closed/syncd  N/A
+fslv13              jfs2       8       8       1    closed/syncd  N/A
+fslv14              jfs2       11      11      1    closed/syncd  N/A
+fslv15              jfs2       8       8       1    closed/syncd  N/A
+fslv16              jfs2       3       3       1    closed/syncd  N/A
+fslv17              jfs2       2       2       1    closed/syncd  N/A
+fslv18              jfs2       1       1       1    closed/syncd  N/A
+fslv19              jfs2       1       1       1    closed/syncd  N/A
+fslv20              jfs2       2       2       1    closed/syncd  N/A
+fslv21              jfs2       13      13      1    closed/syncd  N/A
+fslv22              jfs2       17      17      1    closed/syncd  N/A
+fslv23              jfs2       21      21      1    closed/syncd  N/A
+fslv24              jfs2       46      46      1    closed/syncd  N/A
+fslv25              jfs2       10      10      1    closed/syncd  N/A
+fslv26              jfs2       15      15      1    closed/syncd  N/A
+fslv27              jfs2       1       1       1    closed/syncd  N/A
+fslv28              jfs2       19      19      1    closed/syncd  N/A
+fslv29              jfs2       34      34      1    closed/syncd  N/A
+fslv30              jfs2       1       1       1    closed/syncd  N/A
+fslv31              jfs2       1       1       1    closed/syncd  N/A
+fslv33              jfs2       7       7       1    closed/syncd  N/A
+fslv34              jfs2       10      10      1    closed/syncd  N/A
+fslv35              jfs2       20      20      1    closed/syncd  N/A
+fslv36              jfs2       15      15      1    closed/syncd  N/A
+fslv37              jfs2       23      23      1    closed/syncd  N/A
+fslv38              jfs2       16      16      1    closed/syncd  N/A
+fslv39              jfs2       24      24      1    closed/syncd  N/A
+fslv40              jfs2       1       1       1    closed/syncd  N/A
+fslv41              jfs2       9       9       1    closed/syncd  N/A
+fslv42              jfs2       1       1       1    closed/syncd  N/A
+fslv43              jfs2       6       6       1    closed/syncd  N/A
+fslv44              jfs2       11      11      1    closed/syncd  N/A
+fslv45              jfs2       20      20      1    closed/syncd  N/A
+fslv46              jfs2       14      14      1    closed/syncd  N/A
+fslv47              jfs2       30      30      1    closed/syncd  N/A
+fslv48              jfs2       16      16      1    closed/syncd  N/A
+fslv49              jfs2       17      17      1    closed/syncd  N/A
+fslv50              jfs2       1       1       1    closed/syncd  N/A
+fslv51              jfs2       12      12      1    closed/syncd  N/A
+fslv53              jfs2       1       1       1    closed/syncd  N/A
+fslv54              jfs2       3       3       1    closed/syncd  N/A
+fslv55              jfs2       8       8       1    closed/syncd  N/A
+fslv56              jfs2       11      11      1    closed/syncd  N/A
+fslv57              jfs2       6       6       1    closed/syncd  N/A
+fslv58              jfs2       8       8       1    closed/syncd  N/A
+fslv59              jfs2       24      24      1    closed/syncd  N/A
+fslv60              jfs2       15      15      1    closed/syncd  N/A
+fslv61              jfs2       1       1       1    closed/syncd  N/A
+fslv62              jfs2       1       1       1    closed/syncd  N/A
+root@nimserver:/tmp/vg#
+root@nimserver:/tmp/vg#lsvg -l rootvg
+rootvg:
+LV NAME             TYPE       LPs     PPs     PVs  LV STATE      MOUNT POINT
+hd5                 boot       1       1       1    closed/syncd  N/A
+hd6                 paging     68      68      1    open/syncd    N/A
+hd8                 jfs2log    1       1       1    open/syncd    N/A
+hd4                 jfs2       20      20      1    open/syncd    /
+hd2                 jfs2       20      20      1    open/syncd    /usr
+hd9var              jfs2       20      20      1    open/syncd    /var
+hd3                 jfs2       40      40      1    open/syncd    /tmp
+hd1                 jfs2       31      31      1    open/syncd    /home
+hd10opt             jfs2       20      20      1    open/syncd    /opt
+hd11admin           jfs2       2       2       1    open/syncd    /admin
+lg_dumplv           sysdump    26      26      1    open/syncd    N/A
+livedump            jfs2       1       1       1    open/syncd    /var/adm/ras/livedump
+loglv00             jfslog     1       1       1    open/syncd    N/A
+lv00                jfs        1       1       1    open/syncd    /var/adm/csd
+perflv              jfs2       100     100     1    open/syncd    /perfdata
+auditlv             jfs2       20      20      1    open/syncd    /audit
+violv               jfs2       10      10      1    open/syncd    /spot_vioa
+violpplv            jfs2       10      10      1    open/syncd    /lpp_source_vioa
+root@nimserver:/tmp/vg#
+root@nimserver:/tmp/vg#
+
+
+=================== lv_vg_full_verify code ===================
+
+#include <libperfstat.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <errno.h>
+
+int main() {
+    perfstat_config(PERFSTAT_ENABLE | PERFSTAT_LV | PERFSTAT_VG, NULL);
+
+    /* ---- Volume Groups ---- */
+    perfstat_id_t id;
+    strcpy(id.name, "");
+    errno = 0;
+    int nvg = perfstat_volumegroup(NULL, NULL, sizeof(perfstat_volumegroup_t), 0);
+    printf("=== VolumeGroupStat count call: n=%d errno=%d (%s) ===\n", nvg, errno, strerror(errno));
+
+    if (nvg > 0) {
+        perfstat_volumegroup_t *vg = malloc(sizeof(perfstat_volumegroup_t) * nvg);
+        errno = 0;
+        int rvg = perfstat_volumegroup(&id, vg, sizeof(perfstat_volumegroup_t), nvg);
+        printf("=== VolumeGroupStat fetch call: r=%d errno=%d (%s) ===\n", rvg, errno, strerror(errno));
+        for (int i = 0; i < rvg; i++) {
+            printf("VG name=%-20s variedState=%u totalLVs=%llu openedLVs=%llu totalDisks=%llu activeDisks=%llu\n",
+                   vg[i].name, vg[i].variedState, vg[i].total_logical_volumes, vg[i].opened_logical_volumes,
+                   vg[i].total_disks, vg[i].active_disks);
+        }
+        free(vg);
+    }
+
+    printf("\n");
+
+    /* ---- Logical Volumes ---- */
+    strcpy(id.name, "");
+    errno = 0;
+    int nlv = perfstat_logicalvolume(NULL, NULL, sizeof(perfstat_logicalvolume_t), 0);
+    printf("=== LogicalVolumeStat count call: n=%d errno=%d (%s) ===\n", nlv, errno, strerror(errno));
+
+    if (nlv > 0) {
+        perfstat_logicalvolume_t *lv = malloc(sizeof(perfstat_logicalvolume_t) * nlv);
+        errno = 0;
+        int rlv = perfstat_logicalvolume(&id, lv, sizeof(perfstat_logicalvolume_t), nlv);
+        printf("=== LogicalVolumeStat fetch call: r=%d errno=%d (%s) ===\n", rlv, errno, strerror(errno));
+        for (int i = 0; i < rlv; i++) {
+            printf("LV name=%-20s vg=%-20s state=%llu open_close=%llu LPs=%llu ppsize=%llu mirrors=%u mirrorPolicy=%llu writeVerify=%llu version=%llu\n",
+                   lv[i].name, lv[i].vgname, lv[i].state, lv[i].open_close, lv[i].logical_partitions,
+                   lv[i].ppsize, lv[i].mirrors, lv[i].mirror_policy, lv[i].write_verify, lv[i].version);
+        }
+        free(lv);
+    }
+
+    return 0;
+}
+
+
+=================================================================================
+
+
+
+
+
+
+
+
+
+
+root@nimserver:/tmp#./lv_vg_full_verify
+=== VolumeGroupStat count call: n=9 errno=0 (Error 0) ===
+=== VolumeGroupStat fetch call: r=9 errno=6 (No such device or address) ===
+VG name=Nimvg                variedState=0 totalLVs=55 openedLVs=4 totalDisks=3 activeDisks=3
+VG name=altinst_rootvg       variedState=1 totalLVs=0 openedLVs=0 totalDisks=0 activeDisks=0
+VG name=rootvg               variedState=0 totalLVs=18 openedLVs=17 totalDisks=1 activeDisks=1
+VG name=infivg               variedState=1 totalLVs=0 openedLVs=0 totalDisks=0 activeDisks=0
+VG name=testvg               variedState=0 totalLVs=2 openedLVs=1 totalDisks=1 activeDisks=1
+VG name=test1vg              variedState=1 totalLVs=2 openedLVs=2 totalDisks=1 activeDisks=1
+VG name=test2vg              variedState=1 totalLVs=2 openedLVs=2 totalDisks=1 activeDisks=1
+VG name=test_newvg           variedState=0 totalLVs=2 openedLVs=2 totalDisks=1 activeDisks=1
+VG name=testvg_new1          variedState=0 totalLVs=2 openedLVs=2 totalDisks=1 activeDisks=1
+
+=== LogicalVolumeStat count call: n=85 errno=0 (Error 0) ===
+=== LogicalVolumeStat fetch call: r=85 errno=6 (No such device or address) ===
+LV name=Nimloglv             vg=Nimvg                state=1 open_close=1 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=Nimlv                vg=Nimvg                state=1 open_close=1 LPs=500 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd5                  vg=rootvg               state=1 open_close=2 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd6                  vg=rootvg               state=1 open_close=1 LPs=68 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd8                  vg=rootvg               state=1 open_close=1 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd4                  vg=rootvg               state=1 open_close=1 LPs=20 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv00               vg=Nimvg                state=1 open_close=1 LPs=200 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=spotlv               vg=Nimvg                state=1 open_close=1 LPs=320 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd2                  vg=rootvg               state=1 open_close=1 LPs=20 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd9var               vg=rootvg               state=1 open_close=1 LPs=20 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd3                  vg=rootvg               state=1 open_close=1 LPs=40 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd1                  vg=rootvg               state=1 open_close=1 LPs=31 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd10opt              vg=rootvg               state=1 open_close=1 LPs=20 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=hd11admin            vg=rootvg               state=1 open_close=1 LPs=2 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv11               vg=Nimvg                state=1 open_close=2 LPs=6 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv12               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv13               vg=Nimvg                state=1 open_close=2 LPs=8 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv14               vg=Nimvg                state=1 open_close=2 LPs=11 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv15               vg=Nimvg                state=1 open_close=2 LPs=8 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv16               vg=Nimvg                state=1 open_close=2 LPs=3 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv17               vg=Nimvg                state=1 open_close=2 LPs=2 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv18               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv19               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv20               vg=Nimvg                state=1 open_close=2 LPs=2 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv21               vg=Nimvg                state=1 open_close=2 LPs=13 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv22               vg=Nimvg                state=1 open_close=2 LPs=17 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv23               vg=Nimvg                state=1 open_close=2 LPs=21 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv24               vg=Nimvg                state=1 open_close=2 LPs=46 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv25               vg=Nimvg                state=1 open_close=2 LPs=10 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv26               vg=Nimvg                state=1 open_close=2 LPs=15 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv27               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv28               vg=Nimvg                state=1 open_close=2 LPs=19 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv29               vg=Nimvg                state=1 open_close=2 LPs=34 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv30               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv51               vg=Nimvg                state=1 open_close=2 LPs=12 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv53               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv54               vg=Nimvg                state=1 open_close=2 LPs=3 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv55               vg=Nimvg                state=1 open_close=2 LPs=8 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv56               vg=Nimvg                state=1 open_close=2 LPs=11 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv57               vg=Nimvg                state=1 open_close=2 LPs=6 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv58               vg=Nimvg                state=1 open_close=2 LPs=8 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv59               vg=Nimvg                state=1 open_close=2 LPs=24 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv60               vg=Nimvg                state=1 open_close=2 LPs=15 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv61               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv62               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv09               vg=Nimvg                state=1 open_close=2 LPs=9 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv31               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv33               vg=Nimvg                state=1 open_close=2 LPs=7 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv34               vg=Nimvg                state=1 open_close=2 LPs=10 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv35               vg=Nimvg                state=1 open_close=2 LPs=20 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv36               vg=Nimvg                state=1 open_close=2 LPs=15 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv37               vg=Nimvg                state=1 open_close=2 LPs=23 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv38               vg=Nimvg                state=1 open_close=2 LPs=16 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv39               vg=Nimvg                state=1 open_close=2 LPs=24 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv40               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv41               vg=Nimvg                state=1 open_close=2 LPs=9 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv42               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv43               vg=Nimvg                state=1 open_close=2 LPs=6 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv44               vg=Nimvg                state=1 open_close=2 LPs=11 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv45               vg=Nimvg                state=1 open_close=2 LPs=20 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv46               vg=Nimvg                state=1 open_close=2 LPs=14 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv47               vg=Nimvg                state=1 open_close=2 LPs=30 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv48               vg=Nimvg                state=1 open_close=2 LPs=16 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv49               vg=Nimvg                state=1 open_close=2 LPs=17 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=fslv50               vg=Nimvg                state=1 open_close=2 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=lg_dumplv            vg=rootvg               state=1 open_close=1 LPs=26 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=livedump             vg=rootvg               state=1 open_close=1 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=loglv00              vg=rootvg               state=1 open_close=1 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=infiloglv            vg=                     state=0 open_close=0 LPs=0 ppsize=0 mirrors=0 mirrorPolicy=0 writeVerify=0 version=0
+LV name=infinettestlv        vg=                     state=0 open_close=0 LPs=0 ppsize=0 mirrors=0 mirrorPolicy=0 writeVerify=0 version=0
+LV name=lv00                 vg=rootvg               state=1 open_close=1 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=testloglv            vg=testvg               state=1 open_close=2 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=testlv               vg=testvg               state=1 open_close=1 LPs=18 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=perflv               vg=rootvg               state=1 open_close=1 LPs=100 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=auditlv              vg=rootvg               state=1 open_close=1 LPs=20 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=violv                vg=rootvg               state=1 open_close=1 LPs=10 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=test1loglv           vg=test1vg              state=1 open_close=1 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=test1lv              vg=test1vg              state=1 open_close=1 LPs=38 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=test2loglv           vg=test2vg              state=1 open_close=1 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=test2lv              vg=test2vg              state=1 open_close=1 LPs=38 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=violpplv             vg=rootvg               state=1 open_close=1 LPs=10 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=testnewloglv         vg=test_newvg           state=1 open_close=1 LPs=1 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=test_newlv           vg=test_newvg           state=1 open_close=1 LPs=396 ppsize=256 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=testnew1_loglv       vg=testvg_new1          state=1 open_close=1 LPs=1 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+LV name=testlv_new1          vg=testvg_new1          state=1 open_close=1 LPs=198 ppsize=512 mirrors=1 mirrorPolicy=2 writeVerify=2 version=0
+root@nimserver:/tmp#
+root@nimserver:/tmp#
