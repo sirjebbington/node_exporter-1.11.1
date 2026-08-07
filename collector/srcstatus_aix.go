@@ -1,19 +1,16 @@
-// collector/aix_srcstatus.go
+// collector/srcstatus_aix.go
 //go:build aix
 // +build aix
 
 package collector
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -109,37 +106,46 @@ func NewAIXSRCStatusCollector(logger *slog.Logger) (Collector, error) {
 func (c *aixSRCStatusCollector) Update(ch chan<- prometheus.Metric) error {
 	// Bulk collection if requested.
 	var bulk map[string]srcRow
-	var bulkErr error
 	if c.mode == "bulk" || c.mode == "auto" {
-		bulk, bulkErr = c.runLssrcAll()
+		var err error
+		bulk, err = c.runLssrcAll()
+		if err != nil {
+			if c.mode == "bulk" {
+				// Emit nothing rather than reporting every monitored
+				// subsystem as absent/down. `lssrc -a` failing or timing out
+				// says nothing about the subsystems themselves, and a
+				// fabricated 0 here pages the on-call for services that are
+				// running fine. Surfaces instead as
+				// node_scrape_collector_success{collector="aix_srcstatus"} == 0.
+				return fmt.Errorf("lssrc -a: %w", err)
+			}
+			// auto: fall through to the per-subsystem path below.
+			c.logger.Debug("lssrc -a failed, falling back to lssrc -s", "err", err)
+		}
 	}
 
 	for _, name := range c.subsys {
-		row, ok := bulk[name]
-		if ok {
+		if row, ok := bulk[name]; ok {
 			emitRow(ch, c.descUp, c.descPID, c.descInfo, name, row)
 			continue
 		}
 		if c.mode == "single" || c.mode == "auto" {
 			row, err := c.runLssrcSingle(name)
-			if err == nil {
-				emitRow(ch, c.descUp, c.descPID, c.descInfo, name, row)
-				continue
+			if err != nil {
+				// runLssrcSingle already resolved the one failure that means
+				// "not defined" into a row, so anything left is SRC being
+				// unable to answer. Emitting nothing beats reporting a running
+				// subsystem as down.
+				return fmt.Errorf("lssrc -s %s: %w", name, err)
 			}
-			// Not found / timeout → mark as absent
-			row = srcRow{Group: "unknown", PID: 0, Status: "absent"}
 			emitRow(ch, c.descUp, c.descPID, c.descInfo, name, row)
 			continue
 		}
-		// bulk only and not found → absent
-		row = srcRow{Group: "unknown", PID: 0, Status: "absent"}
-		emitRow(ch, c.descUp, c.descPID, c.descInfo, name, row)
+		// bulk succeeded but did not list this subsystem: it is not defined
+		// in SRC on this host.
+		emitRow(ch, c.descUp, c.descPID, c.descInfo, name, srcRow{Status: "absent"})
 	}
 
-	// Optionally log bulk error (doesn't fail the whole collector).
-	if bulkErr != nil && c.mode != "single" {
-		c.logger.Debug("lssrc -a failed or partial", "err", bulkErr)
-	}
 	return nil
 }
 
@@ -147,7 +153,7 @@ func (c *aixSRCStatusCollector) Update(ch chan<- prometheus.Metric) error {
 type srcRow struct {
 	Group  string
 	PID    int
-	Status string // "active" | "inoperative" | "unknown" | "absent"
+	Status string // "active" | "inoperative" | "starting" | "stopping" | "absent"
 }
 
 func (r srcRow) Up() float64 {
@@ -165,24 +171,18 @@ func emitRow(ch chan<- prometheus.Metric, up, pid, info *prometheus.Desc, name s
 
 // ----- lssrc -a (bulk) -----
 func (c *aixSRCStatusCollector) runLssrcAll() (map[string]srcRow, error) {
-	out, err := c.runCmd(c.lssrcPath, "-a")
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+
+	out, err := runCommand(ctx, c.lssrcPath, "-a")
 	if err != nil {
 		return nil, err
 	}
 	// Map name -> best row (prefer 'active' if duplicates exist).
 	best := map[string]srcRow{}
-	sc := newWideScanner(out)
-	headerSeen := false
+	sc := newScanner(out)
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "Subsystem") {
-			headerSeen = true
-			continue
-		}
-		if !headerSeen {
-			continue
-		}
-		row, ok := parseShortRow(line)
+		row, ok := parseShortRow(sc.Text())
 		if !ok {
 			continue
 		}
@@ -198,41 +198,49 @@ func (c *aixSRCStatusCollector) runLssrcAll() (map[string]srcRow, error) {
 	return best, nil
 }
 
+// srcNotOnFileRe matches SRC's "subsystem is not defined" diagnostic:
+//
+//	0513-085 The foo Subsystem is not on file.
+//
+// This is the one lssrc failure that genuinely means "down/absent". Every
+// other non-zero exit — srcmstr unresponsive, a permission problem — says
+// nothing about the subsystem and must not be reported as one.
+var srcNotOnFileRe = regexp.MustCompile(`0513-085|[Nn]ot on file`)
+
 // ----- lssrc -s <subsystem> (single) -----
 func (c *aixSRCStatusCollector) runLssrcSingle(name string) (srcRow, error) {
-	out, err := c.runCmd(c.lssrcPath, "-s", name)
-	if err != nil {
-		return srcRow{}, err
-	}
-	sc := newWideScanner(out)
-	lineNo := 0
-	for sc.Scan() {
-		lineNo++
-		if lineNo == 2 { // data row
-			if rec, ok := parseShortRow(strings.TrimSpace(sc.Text())); ok && rec.Name == name {
-				return rec.srcRow(), nil
-			}
-			break
-		}
-	}
-	return srcRow{Group: "unknown", PID: 0, Status: "absent"}, nil
-}
-
-// ---------- small exec utility ----------
-func (c *aixSRCStatusCollector) runCmd(name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
-	// Force C locale for predictable columns.
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
-	out, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("%s %v timed out after %s", name, args, c.timeout)
+
+	// Tolerant: lssrc's exit status alone cannot distinguish "this subsystem
+	// is not defined" from "SRC could not answer", so the output is needed
+	// either way.
+	out, err := runCommandTolerant(ctx, c.lssrcPath, "-s", name)
+	if err != nil && isDeadline(err) {
+		return srcRow{}, err
+	}
+
+	// Scan for the matching row rather than assuming it is line 2: a warning
+	// or an SRC informational message ahead of the table would otherwise make
+	// a running subsystem read as absent.
+	sc := newScanner(out)
+	for sc.Scan() {
+		if rec, ok := parseShortRow(sc.Text()); ok && rec.Name == name {
+			return rec.srcRow(), nil
+		}
+	}
+
+	if srcNotOnFileRe.Match(out) {
+		return srcRow{Status: "absent"}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%s %v failed: %v (out=%s)", name, args, err, string(out))
+		// An unexplained failure. Propagate it so Update declines to emit,
+		// rather than reporting a running subsystem as absent.
+		return srcRow{}, err
 	}
-	return out, nil
+	// lssrc succeeded and printed a table that did not mention this
+	// subsystem: it is genuinely not defined here.
+	return srcRow{Status: "absent"}, nil
 }
 
 // ---------- parsing ----------
@@ -243,42 +251,71 @@ type shortRow struct {
 	Status string
 }
 
-var wsRE = regexp.MustCompile(`\s+`)
-
-func parseShortRow(line string) (shortRow, bool) {
-	// Expect: Subsystem Group PID Status
-	// PID may be blank when inoperative.
-	parts := wsRE.Split(strings.TrimSpace(line), -1)
-	if len(parts) < 3 {
-		return shortRow{}, false
-	}
-	// If exactly 3 fields, PID is blank => parts[0]=name, parts[1]=group, parts[2]=status
-	if len(parts) == 3 {
-		return shortRow{Name: parts[0], Group: parts[1], PID: 0, Status: strings.ToLower(parts[2])}, true
-	}
-	// >= 4 fields: take first 4
-	pid := 0
-	if p, err := parseInt(parts[2]); err == nil {
-		pid = p
-	}
-	return shortRow{
-		Name:   parts[0],
-		Group:  parts[1],
-		PID:    pid,
-		Status: strings.ToLower(parts[3]),
-	}, true
-}
-
 func (r shortRow) srcRow() srcRow { return srcRow{Group: r.Group, PID: r.PID, Status: r.Status} }
 
-// ---------- small utils ----------
-func newWideScanner(b []byte) *bufio.Scanner {
-	sc := bufio.NewScanner(bytes.NewReader(b))
-	buf := make([]byte, 0, 256*1024)
-	sc.Buffer(buf, 1024*1024) // tolerate wide outputs
-	return sc
+// srcStates is the set of values SRC reports in the Status column. Requiring
+// the last field to be one of these is what separates a data row from the
+// table header, from blank lines, and from SRC's numbered diagnostics
+// ("0513-004 The Subsystem or Group is currently inoperative."), which
+// otherwise parse into phantom subsystems.
+var srcStates = map[string]bool{
+	"active":      true,
+	"inoperative": true,
+	"starting":    true,
+	"stopping":    true,
 }
 
+// parseShortRow parses one row of `lssrc -a` / `lssrc -s` output.
+//
+// The columns are Subsystem, Group, PID, Status — but Group and PID are BOTH
+// optional and are blank-padded rather than filled, so a row carries anywhere
+// from two to four whitespace-separated fields:
+//
+//	syslogd          ras              10223970     active   -> group + pid
+//	qdaemon          spooler                       inoperative -> group only
+//	aso                               9306448      active   -> pid only
+//	cdromd                                         inoperative -> neither
+//
+// Splitting on whitespace and reading fixed offsets (the previous approach)
+// therefore mis-parses the last two shapes. A groupless-but-running subsystem
+// like aso, gc-agent, ds_agent or node_exporter_aix_go had its PID read as the
+// Group, reporting node_src_subsystem_pid=0 and putting the PID into the
+// group label — where it changed on every restart, so each restart silently
+// started a new time series. A groupless, stopped subsystem produced only two
+// fields, was rejected outright, and got reported as "absent" instead of
+// "inoperative".
+//
+// Anchoring on the ends instead is unambiguous: the name is always first and
+// the status always last. What sits between them is a PID if it is numeric,
+// and a group otherwise.
+func parseShortRow(line string) (shortRow, bool) {
+	parts := strings.Fields(line)
+	if len(parts) < 2 {
+		return shortRow{}, false
+	}
+
+	status := strings.ToLower(parts[len(parts)-1])
+	if !srcStates[status] {
+		return shortRow{}, false
+	}
+
+	row := shortRow{Name: parts[0], Status: status}
+
+	middle := parts[1 : len(parts)-1]
+	if n := len(middle); n > 0 {
+		if pid, err := strconv.Atoi(middle[n-1]); err == nil {
+			row.PID = pid
+			middle = middle[:n-1]
+		}
+	}
+	if len(middle) > 0 {
+		row.Group = middle[0]
+	}
+
+	return row, true
+}
+
+// ---------- small utils ----------
 func splitCSV(s string) []string {
 	var out []string
 	for _, p := range strings.Split(s, ",") {
@@ -287,10 +324,4 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
-}
-
-func parseInt(s string) (int, error) {
-	var n int
-	_, err := fmt.Sscanf(s, "%d", &n)
-	return n, err
 }

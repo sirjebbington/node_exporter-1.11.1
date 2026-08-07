@@ -6,10 +6,7 @@ package collector
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -46,12 +43,12 @@ type aixLspathCollector struct {
 	descPathStatus *prometheus.Desc
 
 	// Aggregations
-	descDiskTotal          *prometheus.Desc // total paths per disk
-	descDiskEnabled        *prometheus.Desc // enabled paths per disk
-	descAdapterTotal       *prometheus.Desc // total paths per adapter (HBA)
-	descAdapterEnabled     *prometheus.Desc // enabled paths per adapter
-	descControllerTotal    *prometheus.Desc // total paths per storage controller (WWN)
-	descControllerEnabled  *prometheus.Desc // enabled paths per storage controller
+	descDiskTotal         *prometheus.Desc // total paths per disk
+	descDiskEnabled       *prometheus.Desc // enabled paths per disk
+	descAdapterTotal      *prometheus.Desc // total paths per adapter (HBA)
+	descAdapterEnabled    *prometheus.Desc // enabled paths per adapter
+	descControllerTotal   *prometheus.Desc // total paths per storage controller (WWN)
+	descControllerEnabled *prometheus.Desc // enabled paths per storage controller
 }
 
 func NewAIXLspathCollector(logger *slog.Logger) (Collector, error) {
@@ -133,7 +130,21 @@ func (c *aixLspathCollector) Update(ch chan<- prometheus.Metric) error {
 	})
 
 	// -- per-path status --
+	//
+	// The status metric is keyed by disk+adapter+wwn+lun+state. Plain `lspath`
+	// output carries no WWN or LUN, so two distinct paths from the same disk
+	// through the same adapter collapse to one label set — and emitting the
+	// same label set twice makes the Prometheus registry reject the entire
+	// scrape. Dedup here, but count every row in the aggregations below, which
+	// is where the real path count belongs.
+	seen := make(map[string]bool, len(paths))
 	for _, p := range paths {
+		key := p.Disk + "\x00" + p.Adapter + "\x00" + p.WWN + "\x00" + p.LUN + "\x00" + p.State
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
 		val := 0.0
 		if p.IsEnabled {
 			val = 1.0
@@ -194,29 +205,48 @@ type lspathRow struct {
 	IsEnabled bool
 }
 
+// lspathStates is the set of path states lspath reports. Requiring a row's
+// state field to be one of these keeps warnings and diagnostics that lspath
+// writes to stderr — which CombinedOutput folds into the same stream — from
+// parsing as paths.
+var lspathStates = map[string]bool{
+	"enabled":   true,
+	"disabled":  true,
+	"failed":    true,
+	"missing":   true,
+	"defined":   true,
+	"available": true,
+	"detected":  true,
+}
+
 // ---------- Collection: try formatted, fall back to plain ----------
 
 func (c *aixLspathCollector) collectPaths() ([]lspathRow, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+
 	// Prefer the rich format that includes WWN and LUN.
-	out, err := c.runCmd(c.lspathPath, "-F", "name:connection:parent:status")
+	out, err := runCommand(ctx, c.lspathPath, "-F", "name:connection:parent:status")
 	if err == nil {
-		rows, parseErr := parseFormattedLspath(out)
-		if parseErr == nil && len(rows) > 0 {
+		if rows := parseFormattedLspath(out); len(rows) > 0 {
 			return rows, nil
 		}
 		// Parsed zero rows from formatted output — could be an empty system or
 		// a format error; fall through to plain lspath.
-		c.logger.Debug("lspath -F returned no rows, falling back to plain lspath", "parseErr", parseErr)
+		c.logger.Debug("lspath -F returned no rows, falling back to plain lspath")
 	} else {
+		if isDeadline(err) {
+			return nil, err
+		}
 		c.logger.Debug("lspath -F failed, falling back to plain lspath", "err", err)
 	}
 
 	// Fallback: plain `lspath` — no WWN/LUN available.
-	out, err = c.runCmd(c.lspathPath)
+	out, err = runCommand(ctx, c.lspathPath)
 	if err != nil {
 		return nil, err
 	}
-	return parsePlainLspath(out)
+	return parsePlainLspath(out), nil
 }
 
 // ---------- Formatted parser: lspath -F "name:connection:parent:status" ----------
@@ -228,9 +258,8 @@ func (c *aixLspathCollector) collectPaths() ([]lspathRow, error) {
 // connection = <wwn>,<lun_hex>   (comma-separated inside the field)
 // A disk can appear multiple times — once per storage-port path. All rows are kept.
 
-func parseFormattedLspath(out []byte) ([]lspathRow, error) {
+func parseFormattedLspath(out []byte) []lspathRow {
 	var rows []lspathRow
-	seen := make(map[string]bool)
 
 	for _, rawLine := range strings.Split(string(out), "\n") {
 		line := strings.TrimSpace(rawLine)
@@ -248,19 +277,12 @@ func parseFormattedLspath(out []byte) ([]lspathRow, error) {
 		adapter := strings.TrimSpace(parts[2])
 		state := strings.ToLower(strings.TrimSpace(parts[3]))
 
-		if disk == "" || adapter == "" || state == "" {
+		if disk == "" || adapter == "" || !lspathStates[state] {
 			continue
 		}
 
 		// Split connection into WWN and LUN.
 		wwn, lun := splitConnection(connection)
-
-		// Unique key: the full path is disk + adapter + wwn + lun.
-		key := disk + "|" + adapter + "|" + wwn + "|" + lun
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
 
 		rows = append(rows, lspathRow{
 			Disk:      disk,
@@ -272,7 +294,7 @@ func parseFormattedLspath(out []byte) ([]lspathRow, error) {
 		})
 	}
 
-	return rows, nil
+	return rows
 }
 
 // splitConnection splits a connection string of the form "<wwn>,<lun>" into
@@ -293,10 +315,15 @@ func splitConnection(connection string) (wwn, lun string) {
 //
 // Fields: status  name  parent
 // No WWN or LUN information available; those fields are left empty.
+//
+// Every row is one path, and a disk commonly reaches several storage ports
+// through a single adapter, so identical disk+adapter rows are legitimate and
+// are all kept — the previous implementation discarded them, which undercounted
+// node_lspath_disk_total_paths on exactly the multipath configurations the
+// metric exists to watch.
 
-func parsePlainLspath(out []byte) ([]lspathRow, error) {
+func parsePlainLspath(out []byte) []lspathRow {
 	var rows []lspathRow
-	seen := make(map[string]bool)
 
 	for _, rawLine := range strings.Split(string(out), "\n") {
 		line := strings.TrimSpace(rawLine)
@@ -311,19 +338,13 @@ func parsePlainLspath(out []byte) ([]lspathRow, error) {
 		}
 
 		state := strings.ToLower(parts[0])
-		disk := parts[1]
-		adapter := parts[2]
-
-		// Plain lspath: unique key is disk + adapter (no WWN/LUN to distinguish).
-		key := disk + "|" + adapter
-		if seen[key] {
+		if !lspathStates[state] {
 			continue
 		}
-		seen[key] = true
 
 		rows = append(rows, lspathRow{
-			Disk:      disk,
-			Adapter:   adapter,
+			Disk:      parts[1],
+			Adapter:   parts[2],
 			WWN:       "",
 			LUN:       "",
 			State:     state,
@@ -331,24 +352,5 @@ func parsePlainLspath(out []byte) ([]lspathRow, error) {
 		})
 	}
 
-	return rows, nil
-}
-
-// ---------- exec helper ----------
-
-func (c *aixLspathCollector) runCmd(name string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
-	out, err := cmd.CombinedOutput()
-
-	if ctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("%s %v timed out after %s", name, args, c.timeout)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%s %v failed: %v (out=%s)", name, args, err, string(out))
-	}
-	return out, nil
+	return rows
 }
