@@ -5,13 +5,16 @@
 package collector
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alecthomas/kingpin/v2"
@@ -32,14 +35,30 @@ var (
 
 	srcstatusTimeout = kingpin.Flag(
 		"collector.aix_srcstatus.timeout",
-		"Timeout per lssrc invocation. Keep small to avoid scrape overruns.").
-		Default("3s").Duration()
+		"Timeout per lssrc invocation. Also capped by whatever is left of the collector's scrape budget.").
+		Default("8s").Duration()
 
 	srcstatusPath = kingpin.Flag(
 		"collector.aix_srcstatus.lssrc-path",
 		"Path to lssrc (leave empty to resolve via PATH).").
 		Default("lssrc").String()
 )
+
+const (
+	srcModeBulk   = "bulk"
+	srcModeSingle = "single"
+	srcModeAuto   = "auto"
+)
+
+// Statuses SRC prints in the Status column, plus the one this collector adds
+// for a subsystem SRC does not know about at all.
+const (
+	srcStatusActive = "active"
+	srcStatusAbsent = "absent"
+)
+
+// unknownGroup labels a subsystem whose SRC group has never been observed.
+const unknownGroup = "unknown"
 
 // ---------- Registration ----------
 func init() {
@@ -53,6 +72,15 @@ type aixSRCStatusCollector struct {
 	mode      string
 	timeout   time.Duration
 	lssrcPath string
+
+	// groupMu guards groups, the last SRC group seen per subsystem. lssrc
+	// leaves the Group column blank for some subsystems and stops listing one
+	// entirely once it is removed, and the group is a metric label: without
+	// this the series would change identity at exactly the moment an operator
+	// is looking at it. Update may run concurrently with itself across
+	// scrapes, so the map needs a lock.
+	groupMu sync.Mutex
+	groups  map[string]string
 
 	// Descriptors
 	descUp   *prometheus.Desc
@@ -85,9 +113,10 @@ func NewAIXSRCStatusCollector(logger *slog.Logger) (Collector, error) {
 		mode:      *srcstatusMode,
 		timeout:   *srcstatusTimeout,
 		lssrcPath: *srcstatusPath,
+		groups:    make(map[string]string, len(targets)),
 		descUp: prometheus.NewDesc(
 			prometheus.BuildFQName(ns, "src", "subsystem_up"),
-			"SRC subsystem up (1=active, 0=not active/inoperative/absent).",
+			"SRC subsystem up (1=active, 0=not active/inoperative/absent). Not published for a scrape in which lssrc did not answer.",
 			[]string{"subsystem", "group"}, nil,
 		),
 		descPID: prometheus.NewDesc(
@@ -103,219 +132,297 @@ func NewAIXSRCStatusCollector(logger *slog.Logger) (Collector, error) {
 	}, nil
 }
 
+// Update publishes one set of metrics per subsystem lssrc actually reported
+// on this scrape.
+//
+// A subsystem whose state could not be established — lssrc timed out, was
+// killed with the scrape budget, or failed for any reason other than telling
+// us the subsystem does not exist — is left out entirely rather than
+// published as 0. Zero means "SRC answered and the subsystem is not running";
+// absence means "nobody knows", which is what a timeout actually tells us.
+// The failure itself is still visible, as node_scrape_collector_timeout and
+// node_scrape_collector_success.
 func (c *aixSRCStatusCollector) Update(ch chan<- prometheus.Metric) error {
-	// Bulk collection if requested.
-	var bulk map[string]srcRow
-	if c.mode == "bulk" || c.mode == "auto" {
-		var err error
-		bulk, err = c.runLssrcAll()
-		if err != nil {
-			if c.mode == "bulk" {
-				// Emit nothing rather than reporting every monitored
-				// subsystem as absent/down. `lssrc -a` failing or timing out
-				// says nothing about the subsystems themselves, and a
-				// fabricated 0 here pages the on-call for services that are
-				// running fine. Surfaces instead as
-				// node_scrape_collector_success{collector="aix_srcstatus"} == 0.
-				return fmt.Errorf("lssrc -a: %w", err)
-			}
-			// auto: fall through to the per-subsystem path below.
-			c.logger.Debug("lssrc -a failed, falling back to lssrc -s", "err", err)
+	if len(c.subsys) == 0 {
+		return nil
+	}
+
+	guard := NewTimeoutGuard("aix_srcstatus", c.logger, 0)
+	ctx, cancel := guard.Context()
+	defer cancel()
+
+	rows, errs := c.observe(ctx, guard)
+	guard.EmitIfTimedOut(ch)
+
+	if len(rows) == 0 {
+		// Nothing was observed, so there is nothing truthful to publish.
+		if len(errs) == 0 {
+			return ErrNoData
 		}
+		return errors.Join(errs...)
 	}
 
 	for _, name := range c.subsys {
-		if row, ok := bulk[name]; ok {
-			emitRow(ch, c.descUp, c.descPID, c.descInfo, name, row)
+		row, ok := rows[name]
+		if !ok {
 			continue
 		}
-		if c.mode == "single" || c.mode == "auto" {
-			row, err := c.runLssrcSingle(name)
-			if err != nil {
-				// runLssrcSingle already resolved the one failure that means
-				// "not defined" into a row, so anything left is SRC being
-				// unable to answer. Emitting nothing beats reporting a running
-				// subsystem as down.
-				return fmt.Errorf("lssrc -s %s: %w", name, err)
-			}
-			emitRow(ch, c.descUp, c.descPID, c.descInfo, name, row)
-			continue
-		}
-		// bulk succeeded but did not list this subsystem: it is not defined
-		// in SRC on this host.
-		emitRow(ch, c.descUp, c.descPID, c.descInfo, name, srcRow{Status: "absent"})
+		c.emit(ch, name, row)
 	}
 
+	// A partial reading still publishes what it learned: the subsystems that
+	// did answer keep their series, and only the unresolved ones go missing.
+	if len(errs) > 0 {
+		c.logger.Debug("aix_srcstatus: some subsystems were not resolved this scrape",
+			"observed", len(rows), "targets", len(c.subsys), "err", errors.Join(errs...))
+	}
 	return nil
+}
+
+// observe resolves as many target subsystems as it can within the budget. A
+// name missing from the returned map was not observed and must not be
+// published.
+func (c *aixSRCStatusCollector) observe(ctx context.Context, guard *TimeoutGuard) (map[string]srcRow, []error) {
+	rows := make(map[string]srcRow, len(c.subsys))
+	var errs []error
+
+	if c.mode == srcModeBulk || c.mode == srcModeAuto {
+		bulk, err := c.runLssrcAll(ctx, guard)
+		switch {
+		case err != nil:
+			errs = append(errs, err)
+		case len(bulk) == 0:
+			// lssrc exited 0 but printed no parseable row. SRC always lists
+			// its own subsystems on a healthy host, so an empty table is an
+			// unreadable answer, not proof that every subsystem is gone.
+			errs = append(errs, errors.New("lssrc -a returned no subsystem rows"))
+		default:
+			for _, name := range c.subsys {
+				if row, ok := bulk[name]; ok {
+					rows[name] = row
+					continue
+				}
+				if c.mode == srcModeBulk {
+					// The listing succeeded and does not mention it: SRC has
+					// no such subsystem. That is a real observation, so it is
+					// published as down rather than dropped.
+					rows[name] = srcRow{Status: srcStatusAbsent}
+				}
+			}
+		}
+	}
+
+	if c.mode == srcModeBulk {
+		return rows, errs
+	}
+
+	for _, name := range c.subsys {
+		if _, done := rows[name]; done {
+			continue
+		}
+		row, err := c.runLssrcSingle(ctx, guard, name)
+		if err != nil {
+			// Unresolved: leave the series absent for this scrape.
+			errs = append(errs, err)
+			continue
+		}
+		rows[name] = row
+	}
+	return rows, errs
 }
 
 // ---------- Model & helpers ----------
 type srcRow struct {
 	Group  string
 	PID    int
-	Status string // "active" | "inoperative" | "starting" | "stopping" | "absent"
+	Status string // "active" | "inoperative" | "absent" | whatever SRC printed
 }
 
-func (r srcRow) Up() float64 {
-	if strings.EqualFold(r.Status, "active") {
+func (r srcRow) up() float64 {
+	if strings.EqualFold(r.Status, srcStatusActive) {
 		return 1
 	}
 	return 0
 }
 
-func emitRow(ch chan<- prometheus.Metric, up, pid, info *prometheus.Desc, name string, row srcRow) {
-	ch <- prometheus.MustNewConstMetric(up, prometheus.GaugeValue, row.Up(), name, row.Group)
-	ch <- prometheus.MustNewConstMetric(pid, prometheus.GaugeValue, float64(row.PID), name, row.Group)
-	ch <- prometheus.MustNewConstMetric(info, prometheus.GaugeValue, 1, name, row.Group, row.Status)
+func (c *aixSRCStatusCollector) emit(ch chan<- prometheus.Metric, name string, row srcRow) {
+	group := c.groupFor(name, row.Group)
+	ch <- prometheus.MustNewConstMetric(c.descUp, prometheus.GaugeValue, row.up(), name, group)
+	ch <- prometheus.MustNewConstMetric(c.descPID, prometheus.GaugeValue, float64(row.PID), name, group)
+	ch <- prometheus.MustNewConstMetric(c.descInfo, prometheus.GaugeValue, 1, name, group, row.Status)
+}
+
+// groupFor keeps the group label stable across the transition that matters:
+// an active subsystem carries its group, and when it goes inoperative or
+// disappears from lssrc entirely the metric keeps the group it was last seen
+// in instead of jumping to a second series labelled "unknown".
+func (c *aixSRCStatusCollector) groupFor(name, observed string) string {
+	c.groupMu.Lock()
+	defer c.groupMu.Unlock()
+	if observed != "" {
+		c.groups[name] = observed
+		return observed
+	}
+	if remembered, ok := c.groups[name]; ok {
+		return remembered
+	}
+	return unknownGroup
 }
 
 // ----- lssrc -a (bulk) -----
-func (c *aixSRCStatusCollector) runLssrcAll() (map[string]srcRow, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
-
-	out, err := runCommand(ctx, c.lssrcPath, "-a")
+func (c *aixSRCStatusCollector) runLssrcAll(ctx context.Context, guard *TimeoutGuard) (map[string]srcRow, error) {
+	out, err := c.runRaw(ctx, guard, "lssrc_a_timeout", "-a")
 	if err != nil {
 		return nil, err
 	}
-	// Map name -> best row (prefer 'active' if duplicates exist).
-	best := map[string]srcRow{}
-	sc := newScanner(out)
+
+	best := make(map[string]srcRow, 64)
+	sc := newWideScanner(out)
 	for sc.Scan() {
-		row, ok := parseShortRow(sc.Text())
+		name, row, ok := parseSRCRow(sc.Text())
 		if !ok {
 			continue
 		}
-		if prev, exists := best[row.Name]; exists {
-			// prefer any 'active'
-			if strings.EqualFold(row.Status, "active") && !strings.EqualFold(prev.Status, "active") {
-				best[row.Name] = row.srcRow()
-			}
+		// A subsystem can be listed more than once (one row per instance);
+		// prefer an active row so a single running instance counts as up.
+		if prev, dup := best[name]; dup && (prev.up() == 1 || row.up() == 0) {
 			continue
 		}
-		best[row.Name] = row.srcRow()
+		best[name] = row
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("reading lssrc -a output: %w", err)
 	}
 	return best, nil
 }
 
-// srcNotOnFileRe matches SRC's "subsystem is not defined" diagnostic:
-//
-//	0513-085 The foo Subsystem is not on file.
-//
-// This is the one lssrc failure that genuinely means "down/absent". Every
-// other non-zero exit — srcmstr unresponsive, a permission problem — says
-// nothing about the subsystem and must not be reported as one.
-var srcNotOnFileRe = regexp.MustCompile(`0513-085|[Nn]ot on file`)
-
 // ----- lssrc -s <subsystem> (single) -----
-func (c *aixSRCStatusCollector) runLssrcSingle(name string) (srcRow, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
-
-	// Tolerant: lssrc's exit status alone cannot distinguish "this subsystem
-	// is not defined" from "SRC could not answer", so the output is needed
-	// either way.
-	out, err := runCommandTolerant(ctx, c.lssrcPath, "-s", name)
-	if err != nil && isDeadline(err) {
+func (c *aixSRCStatusCollector) runLssrcSingle(ctx context.Context, guard *TimeoutGuard, name string) (srcRow, error) {
+	out, err := c.runRaw(ctx, guard, "lssrc_s_timeout", "-s", name)
+	if err != nil {
+		if isDeadline(err) {
+			return srcRow{}, err
+		}
+		// A non-zero exit is only an answer when SRC said what was wrong: the
+		// subsystem is not defined. Anything else (lssrc missing, SRC daemon
+		// not reachable, permission denied) leaves the state unknown.
+		if isSubsystemUndefined(out) {
+			return srcRow{Status: srcStatusAbsent}, nil
+		}
 		return srcRow{}, err
 	}
 
-	// Scan for the matching row rather than assuming it is line 2: a warning
-	// or an SRC informational message ahead of the table would otherwise make
-	// a running subsystem read as absent.
-	sc := newScanner(out)
+	sc := newWideScanner(out)
 	for sc.Scan() {
-		if rec, ok := parseShortRow(sc.Text()); ok && rec.Name == name {
-			return rec.srcRow(), nil
+		got, row, ok := parseSRCRow(sc.Text())
+		if ok && got == name {
+			return row, nil
 		}
 	}
+	if isSubsystemUndefined(out) {
+		return srcRow{Status: srcStatusAbsent}, nil
+	}
+	return srcRow{}, fmt.Errorf("lssrc -s %s returned no row for it: %s", name, firstLine(out))
+}
 
-	if srcNotOnFileRe.Match(out) {
-		return srcRow{Status: "absent"}, nil
-	}
+// isSubsystemUndefined reports whether lssrc said the subsystem does not
+// exist ("0513-085 The foo Subsystem is not on file."). That is a definitive
+// answer — an undefined subsystem cannot be running — unlike a timeout, which
+// says nothing at all.
+func isSubsystemUndefined(out []byte) bool {
+	s := strings.ToLower(string(out))
+	return strings.Contains(s, "0513-085") || strings.Contains(s, "not on file")
+}
+
+// ---------- exec ----------
+
+// runRaw bounds one lssrc call by the smaller of the per-invocation timeout
+// and what is left of the collector's scrape budget, so a mode that shells out
+// once per subsystem cannot walk past the budget one timeout at a time.
+//
+// It hands back whatever lssrc printed alongside the error, so the caller can
+// tell "no such subsystem" apart from "lssrc did not answer".
+func (c *aixSRCStatusCollector) runRaw(ctx context.Context, guard *TimeoutGuard, reason string, args ...string) ([]byte, error) {
+	cctx, cancel := budgetedCommandContext(ctx, guard, c.timeout)
+	defer cancel()
+
+	out, err := runCommandRaw(cctx, c.lssrcPath, args...)
 	if err != nil {
-		// An unexplained failure. Propagate it so Update declines to emit,
-		// rather than reporting a running subsystem as absent.
-		return srcRow{}, err
+		if isDeadline(err) {
+			guard.FlagTimeout(reason)
+		}
+		c.logger.Debug("aix_srcstatus: lssrc failed", "args", args, "err", err)
+		return out, err
 	}
-	// lssrc succeeded and printed a table that did not mention this
-	// subsystem: it is genuinely not defined here.
-	return srcRow{Status: "absent"}, nil
+	return out, nil
 }
 
 // ---------- parsing ----------
-type shortRow struct {
-	Name   string
-	Group  string
-	PID    int
-	Status string
-}
 
-func (r shortRow) srcRow() srcRow { return srcRow{Group: r.Group, PID: r.PID, Status: r.Status} }
-
-// srcStates is the set of values SRC reports in the Status column. Requiring
-// the last field to be one of these is what separates a data row from the
-// table header, from blank lines, and from SRC's numbered diagnostics
-// ("0513-004 The Subsystem or Group is currently inoperative."), which
-// otherwise parse into phantom subsystems.
-var srcStates = map[string]bool{
-	"active":      true,
-	"inoperative": true,
-	"starting":    true,
-	"stopping":    true,
-}
-
-// parseShortRow parses one row of `lssrc -a` / `lssrc -s` output.
+// parseSRCRow reads one row of lssrc short output:
 //
-// The columns are Subsystem, Group, PID, Status — but Group and PID are BOTH
-// optional and are blank-padded rather than filled, so a row carries anywhere
-// from two to four whitespace-separated fields:
+//	Subsystem         Group            PID          Status
+//	 syslogd          ras              123456       active
+//	 xntpd            tcpip                         inoperative
+//	 ctrmc                             234567       active
 //
-//	syslogd          ras              10223970     active   -> group + pid
-//	qdaemon          spooler                       inoperative -> group only
-//	aso                               9306448      active   -> pid only
-//	cdromd                                         inoperative -> neither
-//
-// Splitting on whitespace and reading fixed offsets (the previous approach)
-// therefore mis-parses the last two shapes. A groupless-but-running subsystem
-// like aso, gc-agent, ds_agent or node_exporter_aix_go had its PID read as the
-// Group, reporting node_src_subsystem_pid=0 and putting the PID into the
-// group label — where it changed on every restart, so each restart silently
-// started a new time series. A groupless, stopped subsystem produced only two
-// fields, was rejected outright, and got reported as "absent" instead of
-// "inoperative".
-//
-// Anchoring on the ends instead is unambiguous: the name is always first and
-// the status always last. What sits between them is a PID if it is numeric,
-// and a group otherwise.
-func parseShortRow(line string) (shortRow, bool) {
-	parts := strings.Fields(line)
-	if len(parts) < 2 {
-		return shortRow{}, false
+// Only Subsystem and Status are always filled in: an inoperative subsystem
+// has no PID, and some subsystems belong to no group. Splitting on whitespace
+// and reading columns left to right therefore mistakes a PID for a group on
+// those rows, so the fields are read from the outside in — name first, status
+// last, then the PID if what remains ends in digits.
+func parseSRCRow(line string) (name string, row srcRow, ok bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 || fields[0] == "Subsystem" {
+		return "", srcRow{}, false
 	}
 
-	status := strings.ToLower(parts[len(parts)-1])
-	if !srcStates[status] {
-		return shortRow{}, false
-	}
+	name = fields[0]
+	status := strings.ToLower(fields[len(fields)-1])
+	middle := fields[1 : len(fields)-1]
 
-	row := shortRow{Name: parts[0], Status: status}
-
-	middle := parts[1 : len(parts)-1]
+	pid := 0
 	if n := len(middle); n > 0 {
-		if pid, err := strconv.Atoi(middle[n-1]); err == nil {
-			row.PID = pid
+		// Group names are never all digits, so a numeric last column is the
+		// PID and anything else means the PID column was blank.
+		if v, err := strconv.Atoi(middle[n-1]); err == nil {
+			pid = v
 			middle = middle[:n-1]
 		}
 	}
-	if len(middle) > 0 {
-		row.Group = middle[0]
-	}
 
-	return row, true
+	group := ""
+	if len(middle) > 0 {
+		group = middle[0]
+	}
+	return name, srcRow{Group: group, PID: pid, Status: status}, true
 }
 
 // ---------- small utils ----------
+
+// budgetedCommandContext bounds one command by the smaller of want and the
+// time the collector has left, reserving cmdWaitDelay on top of it.
+//
+// A command that has to be killed is not finished when the kill lands:
+// Cmd.Wait still drains its pipes for up to cmdWaitDelay afterwards, because
+// an orphaned child can hold the write end open (see cmdWaitDelay in
+// fs_nfs_aix.go). Without the reservation an 8s command timeout inside a 9s
+// budget returns at ~10s, past the scrape deadline — and a scrape that times
+// out loses every collector's metrics, not just this one's.
+func budgetedCommandContext(ctx context.Context, guard *TimeoutGuard, want time.Duration) (context.Context, context.CancelFunc) {
+	if room := guard.TimeRemaining() - cmdWaitDelay; room > 0 && room < want {
+		want = room
+	}
+	return context.WithTimeout(ctx, want)
+}
+
+func newWideScanner(b []byte) *bufio.Scanner {
+	sc := bufio.NewScanner(bytes.NewReader(b))
+	buf := make([]byte, 0, 256*1024)
+	sc.Buffer(buf, 1024*1024) // tolerate wide outputs
+	return sc
+}
+
 func splitCSV(s string) []string {
 	var out []string
 	for _, p := range strings.Split(s, ",") {

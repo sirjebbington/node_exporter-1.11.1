@@ -6,10 +6,9 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,8 +21,8 @@ import (
 var (
 	processTimeout = kingpin.Flag(
 		"collector.aix_process.timeout",
-		"Timeout for ps invocation.").
-		Default("3s").Duration()
+		"Timeout for ps invocation. Also capped by whatever is left of the collector's scrape budget.").
+		Default("8s").Duration()
 
 	processPsPath = kingpin.Flag(
 		"collector.aix_process.ps-path",
@@ -32,9 +31,15 @@ var (
 
 	processTargets = kingpin.Flag(
 		"collector.aix_process.processes",
-		"Comma-separated list of processes to monitor. An entry containing a '/' is matched against the process's full executable path; an entry without one is matched against the executable's base name (e.g. /usr/sbin/cron, or just cron).").
+		"Comma-separated list of full executable paths to monitor (e.g. /usr/lib/errdemon,/usr/sbin/cron).").
 		Default("/usr/lib/errdemon,/usr/sbin/cron").String()
 )
+
+// psFormatArgs asks ps for only the two columns the collector needs. The
+// trailing '=' suppresses the headers, so every line is "PID COMMAND ARGS..."
+// and the executable is always the second token: no column drift, and much
+// less output to read than ps -ef on a host running thousands of processes.
+var psFormatArgs = []string{"-eo", "pid=,args="}
 
 // ---------- Registration ----------
 func init() {
@@ -48,9 +53,8 @@ type aixProcessCollector struct {
 	psPath  string
 	targets []string
 
-	descUp        *prometheus.Desc
-	descPID       *prometheus.Desc
-	descInstances *prometheus.Desc
+	descUp  *prometheus.Desc
+	descPID *prometheus.Desc
 }
 
 func NewAIXProcessCollector(logger *slog.Logger) (Collector, error) {
@@ -69,17 +73,12 @@ func NewAIXProcessCollector(logger *slog.Logger) (Collector, error) {
 
 		descUp: prometheus.NewDesc(
 			prometheus.BuildFQName(ns, "process", "up"),
-			"Whether the process is running (1=running, 0=not found).",
+			"Whether the process is running (1=running, 0=not found). Not published for a scrape in which ps did not answer.",
 			[]string{"process"}, nil,
 		),
 		descPID: prometheus.NewDesc(
 			prometheus.BuildFQName(ns, "process", "pid"),
-			"PID of the process when running (lowest PID if several match), else 0.",
-			[]string{"process"}, nil,
-		),
-		descInstances: prometheus.NewDesc(
-			prometheus.BuildFQName(ns, "process", "instances"),
-			"Number of running processes matching this entry.",
+			"PID of the process when running, else 0.",
 			[]string{"process"}, nil,
 		),
 	}, nil
@@ -87,183 +86,189 @@ func NewAIXProcessCollector(logger *slog.Logger) (Collector, error) {
 
 // ---------- Update ----------
 
+// Update publishes one up/pid pair per monitored process, but only for a
+// scrape in which ps actually produced a process table.
+//
+// If ps times out, is killed with the scrape budget, or returns something
+// unreadable, no process metrics are published at all. Emitting 0 there would
+// report every monitored process as dead because the host was too busy to run
+// ps — the one moment those alerts must not fire spuriously. Zero is reserved
+// for its true meaning: ps listed the running processes and this one was not
+// among them. The failure stays visible as node_scrape_collector_timeout and
+// node_scrape_collector_success.
 func (c *aixProcessCollector) Update(ch chan<- prometheus.Metric) error {
 	if len(c.targets) == 0 {
 		return nil
 	}
 
-	found, err := c.collectProcesses()
+	guard := NewTimeoutGuard("aix_process", c.logger, 0)
+	ctx, cancel := guard.Context()
+	defer cancel()
+
+	found, err := c.collectProcesses(ctx, guard)
+	guard.EmitIfTimedOut(ch)
 	if err != nil {
-		// Deliberately emit nothing rather than a fabricated 0 for every
-		// target. A failed or timed-out `ps` says nothing about whether the
-		// daemons are running, and reporting them all as down turns an
-		// exporter-side problem into a fleet-wide false "service down" page.
-		// The failure is still visible, as
-		// node_scrape_collector_success{collector="aix_process"} == 0.
-		return fmt.Errorf("ps: %w", err)
+		c.logger.Debug("aix_process: ps did not answer, leaving process series absent this scrape", "err", err)
+		return err
 	}
 
 	for _, t := range c.targets {
-		m := found[t]
+		pid, running := found[t]
 		up := 0.0
-		if m.count > 0 {
+		if running {
 			up = 1.0
 		}
 		ch <- prometheus.MustNewConstMetric(c.descUp, prometheus.GaugeValue, up, t)
-		ch <- prometheus.MustNewConstMetric(c.descPID, prometheus.GaugeValue, float64(m.pid), t)
-		ch <- prometheus.MustNewConstMetric(c.descInstances, prometheus.GaugeValue, float64(m.count), t)
+		ch <- prometheus.MustNewConstMetric(c.descPID, prometheus.GaugeValue, float64(pid), t)
 	}
 	return nil
 }
 
-// procMatch accumulates the running processes matching one configured target.
-type procMatch struct {
-	pid   int
-	count int
-}
-
-// collectProcesses returns, per configured target, the lowest matching PID and
-// how many processes matched.
-//
-// Matching considers ONLY argv[0] — the executable the process was started as.
-// The previous implementation scanned every whitespace-separated field from
-// index 7 to end of line, which is the command PLUS all of its arguments, so
-// any unrelated process that merely mentioned a monitored path in its command
-// line marked that target as up. `grep /usr/sbin/cron ...`, a backup agent
-// invoked as `wrapper -c /usr/lib/errdemon`, or an admin's editor session were
-// all enough to report a stopped daemon as running, with the impostor's PID.
-func (c *aixProcessCollector) collectProcesses() (map[string]procMatch, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
-
-	// `ps -eo pid=,args=` yields exactly two columns — PID and the full command
-	// line — which removes the column-counting guesswork below entirely. The
-	// trailing '=' suppresses the header.
-	var rows []psRow
-	out, err := runCommand(ctx, c.psPath, "-eo", "pid=,args=")
+// collectProcesses returns a map of executable path -> PID for every
+// monitored target that is running. An error means the process table could
+// not be read, which is never the same thing as an empty map.
+func (c *aixProcessCollector) collectProcesses(ctx context.Context, guard *TimeoutGuard) (map[string]int, error) {
+	out, err := c.runPS(ctx, guard, psFormatArgs...)
 	if err == nil {
-		rows = parsePSTwoColumn(out)
-	} else if isDeadline(err) {
+		found, perr := c.scanPS(out, parsePSFormatRow)
+		if perr == nil {
+			return found, nil
+		}
+		err = perr
+	}
+	if isDeadline(err) {
+		// Out of budget: retrying with another form would only spend time
+		// this scrape no longer has.
 		return nil, err
 	}
 
-	// Fall back to plain `ps -ef` if this AIX level's ps rejects -o, or
-	// accepted it but printed something this parser could not read. No host
-	// runs zero processes, so an empty result means the output was not what
-	// was expected — falling back beats reporting every daemon down.
-	if len(rows) == 0 {
-		c.logger.Debug("ps -eo unusable, falling back to ps -ef", "err", err)
-		out, err = runCommand(ctx, c.psPath, "-ef")
-		if err != nil {
-			return nil, err
-		}
-		rows = parsePSDashEF(out)
+	// A ps too old for -o, or one whose output the format parser could not
+	// make sense of, still answers -ef.
+	c.logger.Debug("aix_process: ps -eo unusable, falling back to ps -ef", "err", err)
+	out, fallbackErr := c.runPS(ctx, guard, "-ef")
+	if fallbackErr != nil {
+		return nil, errors.Join(err, fallbackErr)
 	}
+	found, fallbackErr := c.scanPS(out, parsePSEFRow)
+	if fallbackErr != nil {
+		return nil, errors.Join(err, fallbackErr)
+	}
+	return found, nil
+}
 
-	// Index the targets so each line is matched in constant time. Entries
-	// containing a separator match the full path; bare names match the base
-	// name, which is what lets a daemon started via a relative path or a
-	// symlink still be found.
-	byPath := make(map[string]string, len(c.targets))
-	byBase := make(map[string]string, len(c.targets))
+// scanPS walks the process table with the given row parser and picks out the
+// monitored targets.
+func (c *aixProcessCollector) scanPS(out []byte, parse func(string) (int, string, bool)) (map[string]int, error) {
+	targetSet := make(map[string]bool, len(c.targets))
 	for _, t := range c.targets {
-		if strings.Contains(t, "/") {
-			byPath[t] = t
-		} else {
-			byBase[t] = t
-		}
+		targetSet[t] = true
 	}
 
-	result := make(map[string]procMatch, len(c.targets))
-	for _, p := range rows {
-		target, ok := byPath[p.argv0]
-		if !ok {
-			target, ok = byBase[path.Base(p.argv0)]
-		}
+	found := make(map[string]int, len(c.targets))
+	rows := 0
+
+	sc := newWideScanner(out)
+	for sc.Scan() {
+		pid, cmd, ok := parse(sc.Text())
 		if !ok {
 			continue
 		}
-		m := result[target]
-		m.count++
-		if m.pid == 0 || p.pid < m.pid {
-			m.pid = p.pid
+		rows++
+		if !targetSet[cmd] {
+			continue
 		}
-		result[target] = m
+		// Keep the lowest PID if multiple instances exist.
+		if existing, seen := found[cmd]; !seen || pid < existing {
+			found[cmd] = pid
+		}
 	}
-
-	return result, nil
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("reading ps output: %w", err)
+	}
+	if rows == 0 {
+		// ps exited 0 but listed no process this parser could read. A running
+		// AIX system always has processes, so this is an unreadable answer,
+		// not proof that every target is gone.
+		return nil, ErrNoData
+	}
+	return found, nil
 }
 
-// psRow is one process: its PID and the executable it was started as.
-type psRow struct {
-	pid   int
-	argv0 string
+// ---------- parsing ----------
+
+// parsePSFormatRow reads a line of `ps -eo pid=,args=`:
+//
+//	123456 /usr/sbin/cron -s
+//	     1 /etc/init
+//
+// The executable is the second token; everything after it is arguments.
+func parsePSFormatRow(line string) (int, string, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return 0, "", false
+	}
+	pid, err := strconv.Atoi(fields[0])
+	if err != nil || pid < 0 {
+		return 0, "", false
+	}
+	return pid, fields[1], true
 }
 
-// parsePSTwoColumn parses `ps -eo pid=,args=`:
+// parsePSEFRow reads a line of `ps -ef`:
 //
-//	12517786 /usr/sbin/cron
-//	14614952 /perfdata/node_exporter/node_exporter_aix_ppc64 --web.listen-address=:9681
+//	 UID    PID   PPID   C    STIME    TTY  TIME CMD
+//	root 123456      1   0 09:12:33      -  0:00 /usr/sbin/cron -s
+//	root      1      0   0   Sep 01      -  0:12 /etc/init
 //
-// Anything whose first field is not numeric is skipped, which also discards a
-// header row on any AIX level that ignores the '=' suffix.
-func parsePSTwoColumn(out []byte) []psRow {
-	var rows []psRow
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		pid, err := strconv.Atoi(fields[0])
-		if err != nil {
-			continue
-		}
-		rows = append(rows, psRow{pid: pid, argv0: fields[1]})
+// STIME is one token (a clock time) for a process started today and two
+// ("Sep 01") for an older one, which shifts CMD from field 7 to field 8. Only
+// the first token of CMD is the executable: scanning the arguments too would
+// report /usr/sbin/cron as running because something else ran
+// `sh -c /usr/sbin/cron`, and would report that wrapper's PID.
+func parsePSEFRow(line string) (int, string, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 8 {
+		return 0, "", false
 	}
-	return rows
+	pid, err := strconv.Atoi(fields[1])
+	if err != nil || pid < 0 {
+		return 0, "", false // the header row, and anything malformed
+	}
+	cmdIdx := 7
+	if isMonthAbbrev(fields[4]) {
+		cmdIdx = 8
+	}
+	if cmdIdx >= len(fields) {
+		return 0, "", false
+	}
+	return pid, fields[cmdIdx], true
 }
 
-// psTimeRe matches the TIME column of `ps -ef` output — cumulative CPU time,
-// always "M:SS" or "MMM:SS". It deliberately does not match the "HH:MM:SS"
-// form the STIME column takes for a process started today, which is what makes
-// it usable as a landmark.
-var psTimeRe = regexp.MustCompile(`^[0-9]+:[0-9]{2}$`)
-
-// parsePSDashEF parses `ps -ef`, whose columns are:
-//
-//	UID PID PPID C STIME TTY TIME CMD [args...]
-//
-// STIME is one token for a process started today ("18:25:36") but two for an
-// older one ("Jul 29"), so CMD sits at index 7 or 8 depending on the process's
-// age:
-//
-//	root 14614952 25559546 0 18:25:36 pts/1 0:00 ./node_exporter --web...
-//	root 12714390  8454550 0   Jul 29     - 0:15 /usr/local/bin/node_exporter_aix -cmda
-//
-// Rather than guess, locate the TIME column — the first token at index 4 or
-// beyond matching psTimeRe — and take CMD as the token right after it.
-func parsePSDashEF(out []byte) []psRow {
-	var rows []psRow
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 8 {
-			continue
-		}
-		pid, err := strconv.Atoi(fields[1])
-		if err != nil {
-			continue // header row, or a wrapped line
-		}
-		cmd := -1
-		for i := 4; i < len(fields)-1; i++ {
-			if psTimeRe.MatchString(fields[i]) {
-				cmd = i + 1
-				break
-			}
-		}
-		if cmd < 0 {
-			continue
-		}
-		rows = append(rows, psRow{pid: pid, argv0: fields[cmd]})
+// isMonthAbbrev reports whether s is a C-locale month abbreviation, which is
+// how ps renders the STIME of a process that did not start today.
+func isMonthAbbrev(s string) bool {
+	switch s {
+	case "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec":
+		return true
 	}
-	return rows
+	return false
+}
+
+// ---------- exec ----------
+
+// runPS bounds one ps call by the smaller of the per-invocation timeout and
+// what is left of the collector's scrape budget.
+func (c *aixProcessCollector) runPS(ctx context.Context, guard *TimeoutGuard, args ...string) ([]byte, error) {
+	cctx, cancel := budgetedCommandContext(ctx, guard, c.timeout)
+	defer cancel()
+
+	out, err := runCommand(cctx, c.psPath, args...)
+	if err != nil {
+		if isDeadline(err) {
+			guard.FlagTimeout("ps_timeout")
+		}
+		return nil, err
+	}
+	return out, nil
 }
