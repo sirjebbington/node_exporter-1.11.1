@@ -145,7 +145,76 @@ I6. Forwarding tokens to downstream services: is one app (Grafana) allowed to se
     exchange (RFC 8693), resource indicators (RFC 8707) or per-audience tokens? Is there a
     documented pattern for this?
 I7. "Hybrid IDAM model": what does it mean? How do roles, and the upcoming template-based
-    policies, appear in tokens?
-I8. Service-to-service: is the client credentials grant supported? What do sub and the other
-    claims look like in machine tokens? (We need this for an alerting / MCP fallback.)
-I9. Any docs on onboarding StarRocks, Ranger, Grafana or the Observability platform to JWT auth.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Task: document exactly how Grafana plugins get into our Grafana pods
+
+## Context
+We are adding a new custom Grafana **backend datasource plugin**:
+- Plugin ID: `kotak-starrocks-datasource`.
+- Zip layout: a top-level folder `kotak-starrocks-datasource/` containing `plugin.json`, `module.js`, `img/` and a Linux binary named like `gpx_kotak_starrocks_linux_amd64`.
+- Signing is not decided yet: either a private signature or `allow_loading_unsigned_plugins`.
+
+Before anyone touches config, I need a precise map of how plugins are delivered today.
+
+This is research only:
+- Do NOT edit, commit or push anything.
+- Do NOT print secrets, tokens, passwords, account IDs or full ARNs. Mask them, e.g. `arn:aws:iam::****:role/...`.
+
+## Repo and branches to check
+- Repo: obser-aws-deploy-config, focus on uat env
+
+## Questions to answer (give file path + line numbers + a short quoted snippet for each)
+
+### 1. Plugin delivery pipeline
+1. Find `grafana-plugin-upload.yml`, or whatever uploads plugin zips. What triggers it? Which S3 bucket and prefix does it write to, with the bucket name masked if sensitive? How are plugin versions named?
+2. List every plugin currently delivered this way: plugin ID, version and zip name. Which of them have backend binaries?
+3. Is any plugin installed a different way, e.g. `GF_INSTALL_PLUGINS`, the Helm `plugins:` list, a baked-in image, or a sidecar? Say which and where.
+
+### 2. How the pod picks plugins up
+4. Show the init container(s) in the Grafana Helm values for EACH environment, including:
+   - image, command and args;
+   - the exact `aws s3 cp` / sync and unzip commands;
+   - the target directory;
+   - IAM / IRSA / service account used for S3 access.
+5. Which volume is mounted at the plugins path (emptyDir, PVC, other)? What is the mount path in the init container and in the Grafana container?
+6. What is `paths.plugins` / `GF_PATHS_PLUGINS` set to? Confirm it matches the directory the init container writes to.
+7. Is there a `chmod +x` (or similar) step for backend binaries (`gpx_*`)? In which environments is it present or missing?
+8. Is there any plugin allowlist or signature setting: `allow_loading_unsigned_plugins`, `plugin_admin_enabled`, `plugins.preinstall`, `plugin_catalog_url`, `GF_PLUGINS_*` env vars? Give the per-env values.
+
+### 3. Grafana deployment specifics
+9. Helm chart name and version, and the workload kind (StatefulSet/Deployment) and replica count per env.
+10. Grafana image and tag per env. Is it the official image or a wrapper? If a wrapper, where is its Dockerfile, and does it add anything plugin-related?
+11. How changes roll out: ArgoCD / Flux / CI `helm upgrade` / manual. Which file or app definition controls that? Does a values change restart the pod automatically?
+12. Container security context: `readOnlyRootFilesystem`, `runAsUser`, `fsGroup`, any `noexec` mounts. Anything that would stop a plugin binary from executing.
+13. Egress or network policies affecting the Grafana pod. Can it reach the StarRocks FE on port 9030?
+
+### 4. Datasource provisioning
+14. Where are datasources provisioned for each env and org? Give the file paths, and say how they get into the pod (ConfigMap, sidecar, values `datasources:` block).
+15. Show one existing StarRocks (`type: mysql`) datasource entry in full, with secrets masked, and one entry that already uses `oauthPassThru: true`.
+16. How are secret files referenced? Confirm the `$__file{...}` usage and the secrets CSI mount, e.g. `/mnt/grafana-secrets/domain-kotak-cacerts`: SecretProviderClass name, mount path, and which env vars or files use it.
+
+### 5. Auth settings that affect token forwarding
+17. `auth.generic_oauth` per env: `use_refresh_token`, `scopes`, `login_attribute_path`, `auth_url` (does it include `audience=`?), and `token_url`. Mask `client_id` (show the first 4 characters only) and never show `client_secret`.
+18. Are feature toggles set (`[feature_toggles]` / `GF_FEATURE_TOGGLES_ENABLE`), especially `improvedExternalSessionHandling` or `idForwarding`?
+
+## Output format
+Write ONE markdown file: `grafana-plugin-delivery-findings.md` in the repo root. Do not commit it.
+1. A short "How plugins reach Grafana today" flow, as a single line or small ASCII diagram.
+2. One section per question number above. Each gets the answer, then `path:line`, then a quoted snippet of at most 10 lines.
+3. A table of differences between environments (dev / uat / prod) for: init container, chmod, plugins path, unsigned-plugin setting, rollout method.
+4. A list called "Exact changes needed to add `kotak-starrocks-datasource`". For each change give the file path, what to add, and in which env. Describe the changes only; do not make them.
+5. A list called "Unknowns / couldn't find". State what's missing rather than guessing. 
